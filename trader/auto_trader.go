@@ -73,6 +73,11 @@ type AutoTraderConfig struct {
 
 	// 系统提示词模板
 	SystemPromptTemplate string // 系统提示词模板名称（如 "default", "aggressive"）
+
+	// 经济日历配置
+	EconomicCalendarDB        string // 经济日历数据库路径（如 "economic_calendar.db"）
+	EconomicCalendarHours     int    // 查询未来多少小时内的事件（默认24小时）
+	EconomicCalendarImportance string // 最低重要性过滤 ("高"/"中"/"低"，默认"高"）
 }
 
 // AutoTrader 自动交易器
@@ -558,7 +563,30 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		performance = nil
 	}
 
-	// 6. 构建上下文
+	// 6. 加载经济日历事件
+	var economicEvents []decision.EconomicEvent
+	if at.config.EconomicCalendarDB != "" {
+		// 使用配置的参数，设置默认值
+		hoursAhead := at.config.EconomicCalendarHours
+		if hoursAhead <= 0 {
+			hoursAhead = 24 // 默认查询未来24小时
+		}
+		minImportance := at.config.EconomicCalendarImportance
+		if minImportance == "" {
+			minImportance = "高" // 默认只查询高重要性事件
+		}
+
+		events, err := decision.LoadEconomicEvents(at.config.EconomicCalendarDB, hoursAhead, minImportance)
+		if err != nil {
+			log.Printf("⚠️  加载经济日历失败: %v (跳过经济日历数据)", err)
+			// 不影响主流程，继续执行
+		} else if len(events) > 0 {
+			economicEvents = events
+			log.Printf("✓ 已加载 %d 个经济日历事件（未来%d小时，%s重要性及以上）", len(events), hoursAhead, minImportance)
+		}
+	}
+
+	// 7. 构建上下文
 	ctx := &decision.Context{
 		CurrentTime:     time.Now().Format("2006-01-02 15:04:05"),
 		RuntimeMinutes:  int(time.Since(at.startTime).Minutes()),
@@ -576,7 +604,8 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		},
 		Positions:      positionInfos,
 		CandidateCoins: candidateCoins,
-		Performance:    performance, // 添加历史表现分析
+		Performance:    performance,     // 添加历史表现分析
+		EconomicEvents: economicEvents, // 添加经济日历事件
 	}
 
 	return ctx, nil

@@ -192,6 +192,9 @@ func (d *Database) createTables() error {
 		`ALTER TABLE traders ADD COLUMN system_prompt_template TEXT DEFAULT 'default'`, // 系统提示词模板名称
 		`ALTER TABLE ai_models ADD COLUMN custom_api_url TEXT DEFAULT ''`,              // 自定义API地址
 		`ALTER TABLE ai_models ADD COLUMN custom_model_name TEXT DEFAULT ''`,           // 自定义模型名称
+		`ALTER TABLE traders ADD COLUMN economic_calendar_db TEXT DEFAULT ''`,                       // 经济日历数据库路径
+		`ALTER TABLE traders ADD COLUMN economic_calendar_hours INTEGER DEFAULT 24`,                 // 查询未来多少小时内的事件
+		`ALTER TABLE traders ADD COLUMN economic_calendar_importance TEXT DEFAULT '高'`,             // 最低重要性过滤
 	}
 
 	for _, query := range alterQueries {
@@ -421,6 +424,9 @@ type TraderRecord struct {
 	OverrideBasePrompt   bool      `json:"override_base_prompt"`   // 是否覆盖基础prompt
 	SystemPromptTemplate string    `json:"system_prompt_template"` // 系统提示词模板名称
 	IsCrossMargin        bool      `json:"is_cross_margin"`        // 是否为全仓模式（true=全仓，false=逐仓）
+	EconomicCalendarDB        string `json:"economic_calendar_db"`        // 经济日历数据库路径
+	EconomicCalendarHours     int    `json:"economic_calendar_hours"`     // 查询未来多少小时内的事件
+	EconomicCalendarImportance string `json:"economic_calendar_importance"` // 最低重要性过滤
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
 }
@@ -787,7 +793,11 @@ func (d *Database) GetTraders(userID string) ([]*TraderRecord, error) {
 		       COALESCE(use_coin_pool, 0) as use_coin_pool, COALESCE(use_oi_top, 0) as use_oi_top,COALESCE(use_inside_coins, 0) as use_inside_coins,
 		       COALESCE(custom_prompt, '') as custom_prompt, COALESCE(override_base_prompt, 0) as override_base_prompt,
 		       COALESCE(system_prompt_template, 'default') as system_prompt_template,
-		       COALESCE(is_cross_margin, 1) as is_cross_margin, created_at, updated_at
+		       COALESCE(is_cross_margin, 1) as is_cross_margin,
+		       COALESCE(economic_calendar_db, '') as economic_calendar_db,
+		       COALESCE(economic_calendar_hours, 24) as economic_calendar_hours,
+		       COALESCE(economic_calendar_importance, '高') as economic_calendar_importance,
+		       created_at, updated_at
 		FROM traders WHERE user_id = ? ORDER BY created_at DESC
 	`, userID)
 	if err != nil {
@@ -805,6 +815,7 @@ func (d *Database) GetTraders(userID string) ([]*TraderRecord, error) {
 			&trader.UseCoinPool, &trader.UseOITop, &trader.UseInsideCoins,
 			&trader.CustomPrompt, &trader.OverrideBasePrompt, &trader.SystemPromptTemplate,
 			&trader.IsCrossMargin,
+			&trader.EconomicCalendarDB, &trader.EconomicCalendarHours, &trader.EconomicCalendarImportance,
 			&trader.CreatedAt, &trader.UpdatedAt,
 		)
 		if err != nil {
