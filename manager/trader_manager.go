@@ -335,6 +335,9 @@ func (tm *TraderManager) AddTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		IsCrossMargin:         traderCfg.IsCrossMargin,
 		DefaultCoins:          defaultCoins,
 		TradingCoins:          tradingCoins,
+		EconomicCalendarDB:    traderCfg.EconomicCalendarDB,            // 经济日历数据库路径
+		EconomicCalendarHours: traderCfg.EconomicCalendarHours,         // 查询未来多少小时
+		EconomicCalendarImportance: traderCfg.EconomicCalendarImportance, // 最低重要性过滤
 	}
 
 	// 根据交易所类型设置API密钥
@@ -745,6 +748,9 @@ func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiMode
 		DefaultCoins:          defaultCoins,
 		TradingCoins:          tradingCoins,
 		SystemPromptTemplate:  traderCfg.SystemPromptTemplate, // 系统提示词模板
+		EconomicCalendarDB:    traderCfg.EconomicCalendarDB,            // 经济日历数据库路径
+		EconomicCalendarHours: traderCfg.EconomicCalendarHours,         // 查询未来多少小时
+		EconomicCalendarImportance: traderCfg.EconomicCalendarImportance, // 最低重要性过滤
 	}
 
 	// 根据交易所类型设置API密钥
