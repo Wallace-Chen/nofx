@@ -89,11 +89,20 @@ type Context struct {
 // Decision AI的交易决策
 type Decision struct {
 	Symbol          string  `json:"symbol"`
-	Action          string  `json:"action"` // "open_long", "open_short", "close_long", "close_short", "hold", "wait"
+	Action          string  `json:"action"` // "open_long", "open_short", "close_long", "close_short", "update_stop_loss", "update_take_profit", "partial_close", "hold", "wait"
+
+	// 开仓参数
 	Leverage        int     `json:"leverage,omitempty"`
 	PositionSizeUSD float64 `json:"position_size_usd,omitempty"`
 	StopLoss        float64 `json:"stop_loss,omitempty"`
 	TakeProfit      float64 `json:"take_profit,omitempty"`
+
+	// 调整参数（新增）
+	NewStopLoss     float64 `json:"new_stop_loss,omitempty"`     // 用于 update_stop_loss
+	NewTakeProfit   float64 `json:"new_take_profit,omitempty"`   // 用于 update_take_profit
+	ClosePercentage float64 `json:"close_percentage,omitempty"`  // 用于 partial_close (0-100)
+
+	// 通用参数
 	Confidence      int     `json:"confidence,omitempty"` // 信心度 (0-100)
 	RiskUSD         float64 `json:"risk_usd,omitempty"`   // 最大美元风险
 	Reasoning       string  `json:"reasoning"`
@@ -273,7 +282,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 		log.Printf("⚠️  提示词模板 '%s' 不存在，使用 default: %v", templateName, err)
 		template, err = GetPromptTemplate("default")
 		if err != nil {
-			// 如果连 default 都不存在，使用内置的简化版本
+			// 如果连 default 都不存在，使用内置的简化版本（最后防线）
 			log.Printf("❌ 无法加载任何提示词模板，使用内置简化版本")
 			sb.WriteString("你是专业的加密货币交易AI。请根据市场数据做出交易决策。\n\n")
 		} else {
@@ -285,7 +294,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 		sb.WriteString("\n\n")
 	}
 
-	// 2. 硬约束（风险控制）- 动态生成
+	// 2. 硬约束（风险控制）- 动态生成（始终追加）
 	sb.WriteString("# 硬约束（风险控制）\n\n")
 	sb.WriteString("1. 风险回报比: 必须 ≥ 1:3（冒1%风险，赚3%+收益）\n")
 	sb.WriteString("2. 最多持仓: 3个币种（质量>数量）\n")
@@ -293,7 +302,7 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 		accountEquity*0.8, accountEquity*1.5, altcoinLeverage, accountEquity*5, accountEquity*10, btcEthLeverage))
 	sb.WriteString("4. 保证金: 总使用率 ≤ 90%\n\n")
 
-	// 3. 输出格式 - 动态生成
+	// 3. 输出格式 - 动态生成（始终追加）
 	sb.WriteString("#输出格式\n\n")
 	sb.WriteString("第一步: 思维链（纯文本）\n")
 	sb.WriteString("简洁分析你的思考过程\n\n")
@@ -303,9 +312,12 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"止盈离场\"}\n")
 	sb.WriteString("]\n```\n\n")
 	sb.WriteString("字段说明:\n")
-	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
+	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | update_stop_loss | update_take_profit | partial_close | hold | wait\n")
 	sb.WriteString("- `confidence`: 0-100（开仓建议≥75）\n")
-	sb.WriteString("- 开仓时必填: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n\n")
+	sb.WriteString("- 开仓时必填: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n")
+	sb.WriteString("- update_stop_loss 必填: new_stop_loss, reasoning\n")
+	sb.WriteString("- update_take_profit 必填: new_take_profit, reasoning\n")
+	sb.WriteString("- partial_close 必填: close_percentage (0-100), reasoning\n\n")
 
 	return sb.String()
 }
@@ -561,12 +573,15 @@ func findMatchingBracket(s string, start int) int {
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
 	// 验证action
 	validActions := map[string]bool{
-		"open_long":   true,
-		"open_short":  true,
-		"close_long":  true,
-		"close_short": true,
-		"hold":        true,
-		"wait":        true,
+		"open_long":          true,
+		"open_short":         true,
+		"close_long":         true,
+		"close_short":        true,
+		"update_stop_loss":   true,
+		"update_take_profit": true,
+		"partial_close":      true,
+		"hold":               true,
+		"wait":               true,
 	}
 
 	if !validActions[d.Action] {
@@ -643,6 +658,27 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		if riskRewardRatio < 3.0 {
 			return fmt.Errorf("风险回报比过低(%.2f:1)，必须≥3.0:1 [风险:%.2f%% 收益:%.2f%%] [止损:%.2f 止盈:%.2f]",
 				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
+		}
+	}
+
+	// 动态调整止损验证
+	if d.Action == "update_stop_loss" {
+		if d.NewStopLoss <= 0 {
+			return fmt.Errorf("新止损价格必须大于0: %.2f", d.NewStopLoss)
+		}
+	}
+
+	// 动态调整止盈验证
+	if d.Action == "update_take_profit" {
+		if d.NewTakeProfit <= 0 {
+			return fmt.Errorf("新止盈价格必须大于0: %.2f", d.NewTakeProfit)
+		}
+	}
+
+	// 部分平仓验证
+	if d.Action == "partial_close" {
+		if d.ClosePercentage <= 0 || d.ClosePercentage > 100 {
+			return fmt.Errorf("平仓百分比必须在0-100之间: %.1f", d.ClosePercentage)
 		}
 	}
 
