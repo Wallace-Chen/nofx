@@ -332,6 +332,23 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		systemPromptTemplate = req.SystemPromptTemplate
 	}
 
+	// 设置经济日历默认值（从系统配置获取）
+	economicCalendarDB := ""
+	economicCalendarHours := 24
+	economicCalendarImportance := "高"
+
+	if dbPath, _ := s.database.GetSystemConfig("economic_calendar_db_path"); dbPath != "" {
+		economicCalendarDB = dbPath
+	}
+	if hoursStr, _ := s.database.GetSystemConfig("economic_calendar_hours_ahead"); hoursStr != "" {
+		if val, err := strconv.Atoi(hoursStr); err == nil && val > 0 {
+			economicCalendarHours = val
+		}
+	}
+	if importance, _ := s.database.GetSystemConfig("economic_calendar_min_importance"); importance != "" {
+		economicCalendarImportance = importance
+	}
+
     // 创建交易员配置（数据库实体）
     trader := &config.TraderRecord{
 		ID:                   traderID,
@@ -351,6 +368,9 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		IsCrossMargin:        isCrossMargin,
 		ScanIntervalMinutes:  3, // 默认3分钟
 		IsRunning:           false,
+		EconomicCalendarDB:        economicCalendarDB,        // 经济日历数据库路径（从系统配置）
+		EconomicCalendarHours:     economicCalendarHours,     // 查询未来多少小时（从系统配置）
+		EconomicCalendarImportance: economicCalendarImportance, // 最低重要性过滤（从系统配置）
 	}
 
 	// 保存到数据库

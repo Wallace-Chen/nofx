@@ -101,19 +101,20 @@ func startEconomicCalendarService(cfg *EconomicCalendarConfig) *exec.Cmd {
 
 // ConfigFile 配置文件结构，只包含需要同步到数据库的字段
 type ConfigFile struct {
-	AdminMode          bool           `json:"admin_mode"`
-	APIServerPort      int            `json:"api_server_port"`
-	UseDefaultCoins    bool           `json:"use_default_coins"`
-	DefaultCoins       []string       `json:"default_coins"`
-	CoinPoolAPIURL     string         `json:"coin_pool_api_url"`
-	OITopAPIURL        string         `json:"oi_top_api_url"`
-	InsideCoins        bool           `json:"inside_coins"`
-	MaxDailyLoss       float64        `json:"max_daily_loss"`
-	MaxDrawdown        float64        `json:"max_drawdown"`
-	StopTradingMinutes int            `json:"stop_trading_minutes"`
-	Leverage           LeverageConfig `json:"leverage"`
-	JWTSecret          string         `json:"jwt_secret"`
-	DataKLineTime      string         `json:"data_k_line_time"`
+	AdminMode          bool                    `json:"admin_mode"`
+	APIServerPort      int                     `json:"api_server_port"`
+	UseDefaultCoins    bool                    `json:"use_default_coins"`
+	DefaultCoins       []string                `json:"default_coins"`
+	CoinPoolAPIURL     string                  `json:"coin_pool_api_url"`
+	OITopAPIURL        string                  `json:"oi_top_api_url"`
+	InsideCoins        bool                    `json:"inside_coins"`
+	MaxDailyLoss       float64                 `json:"max_daily_loss"`
+	MaxDrawdown        float64                 `json:"max_drawdown"`
+	StopTradingMinutes int                     `json:"stop_trading_minutes"`
+	Leverage           LeverageConfig          `json:"leverage"`
+	JWTSecret          string                  `json:"jwt_secret"`
+	DataKLineTime      string                  `json:"data_k_line_time"`
+	EconomicCalendar   *EconomicCalendarConfig `json:"economic_calendar"`
 }
 
 // syncConfigToDatabase 从config.json读取配置并同步到数据库
@@ -170,6 +171,13 @@ func syncConfigToDatabase(database *config.Database) error {
 	// 如果JWT密钥不为空，也同步
 	if configFile.JWTSecret != "" {
 		configs["jwt_secret"] = configFile.JWTSecret
+	}
+
+	// 同步经济日历配置
+	if configFile.EconomicCalendar != nil {
+		configs["economic_calendar_db_path"] = configFile.EconomicCalendar.DBPath
+		configs["economic_calendar_hours_ahead"] = strconv.Itoa(configFile.EconomicCalendar.HoursAhead)
+		configs["economic_calendar_min_importance"] = configFile.EconomicCalendar.MinImportance
 	}
 
 	// 更新数据库配置
