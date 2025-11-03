@@ -352,6 +352,23 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	economicCalendarDB = "./telegram/calendar_data/economic_calendar.db"
 	economicCalendarHours = 24
 	economicCalendarImportance = "高"
+
+	// 设置新闻默认值（从系统配置获取）
+	newsDB := "./telegram/news/news.db"
+	newsLimit := 10
+
+	if dbPath, _ := s.database.GetSystemConfig("news_db_path"); dbPath != "" {
+		newsDB = dbPath
+	}
+	if limitStr, _ := s.database.GetSystemConfig("news_limit"); limitStr != "" {
+		if val, err := strconv.Atoi(limitStr); err == nil && val > 0 {
+			newsLimit = val
+		}
+	}
+
+	newsDB = "./telegram/news/news.db"
+	newsLimit = 10
+
     // 创建交易员配置（数据库实体）
     trader := &config.TraderRecord{
 		ID:                   traderID,
@@ -374,6 +391,8 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		EconomicCalendarDB:        economicCalendarDB,        // 经济日历数据库路径（从系统配置）
 		EconomicCalendarHours:     economicCalendarHours,     // 查询未来多少小时（从系统配置）
 		EconomicCalendarImportance: economicCalendarImportance, // 最低重要性过滤（从系统配置）
+		NewsDB:    newsDB,    // 新闻数据库路径（从系统配置）
+		NewsLimit: newsLimit, // 获取最新新闻数量（从系统配置）
 	}
 
 	// 保存到数据库

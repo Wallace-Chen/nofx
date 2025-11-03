@@ -229,6 +229,8 @@ func (tm *TraderManager) addTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		EconomicCalendarDB:    traderCfg.EconomicCalendarDB,            // 经济日历数据库路径
 		EconomicCalendarHours: traderCfg.EconomicCalendarHours,         // 查询未来多少小时
 		EconomicCalendarImportance: traderCfg.EconomicCalendarImportance, // 最低重要性过滤
+		NewsDB:    traderCfg.NewsDB,    // 新闻数据库路径
+		NewsLimit: traderCfg.NewsLimit, // 获取最新新闻数量
 	}
 
 	// 根据交易所类型设置API密钥
@@ -338,6 +340,8 @@ func (tm *TraderManager) AddTraderFromDB(traderCfg *config.TraderRecord, aiModel
 		EconomicCalendarDB:    traderCfg.EconomicCalendarDB,            // 经济日历数据库路径
 		EconomicCalendarHours: traderCfg.EconomicCalendarHours,         // 查询未来多少小时
 		EconomicCalendarImportance: traderCfg.EconomicCalendarImportance, // 最低重要性过滤
+		NewsDB:    traderCfg.NewsDB,    // 新闻数据库路径
+		NewsLimit: traderCfg.NewsLimit, // 获取最新新闻数量
 	}
 
 	// 根据交易所类型设置API密钥
@@ -751,6 +755,8 @@ func (tm *TraderManager) loadSingleTrader(traderCfg *config.TraderRecord, aiMode
 		EconomicCalendarDB:    traderCfg.EconomicCalendarDB,            // 经济日历数据库路径
 		EconomicCalendarHours: traderCfg.EconomicCalendarHours,         // 查询未来多少小时
 		EconomicCalendarImportance: traderCfg.EconomicCalendarImportance, // 最低重要性过滤
+		NewsDB:    traderCfg.NewsDB,    // 新闻数据库路径
+		NewsLimit: traderCfg.NewsLimit, // 获取最新新闻数量
 	}
 
 	// 根据交易所类型设置API密钥

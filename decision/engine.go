@@ -70,6 +70,15 @@ type EconomicEvent struct {
 	Previous   *string `json:"previous"`   // 前值
 }
 
+// NewsItem 加密货币新闻
+type NewsItem struct {
+	Title      string `json:"title"`      // 新闻标题
+	Content    string `json:"content"`    // 新闻内容
+	Timestamp  string `json:"timestamp"`  // 新闻时间戳
+	Importance string `json:"importance"` // 重要性 (critical/high/medium/low)
+	TimeAgo    string `json:"time_ago"`   // 距离现在的时间描述 (e.g., "5分钟前", "2小时前")
+}
+
 // Context 交易上下文（传递给AI的完整信息）
 type Context struct {
 	CurrentTime     string                  `json:"current_time"`
@@ -83,7 +92,8 @@ type Context struct {
 	Performance     interface{}             `json:"-"` // 历史表现分析（logger.PerformanceAnalysis）
 	BTCETHLeverage  int                     `json:"-"` // BTC/ETH杠杆倍数（从配置读取）
 	AltcoinLeverage int                     `json:"-"` // 山寨币杠杆倍数（从配置读取）
-	EconomicEvents  []EconomicEvent         `json:"economic_events"` // 经济日历事件（新增）
+	EconomicEvents  []EconomicEvent         `json:"economic_events"` // 经济日历事件
+	News            []NewsItem              `json:"news"`            // 加密货币新闻（新增）
 }
 
 // Decision AI的交易决策
@@ -444,10 +454,53 @@ func buildUserPrompt(ctx *Context) string {
 				sb.WriteString("\n")
 			}
 		}
-		sb.WriteString("\n⚠️ 注意: 高影响事件可能导致市场剧烈波动，建议:\n")
-		sb.WriteString("- 事件前1-2小时避免新开仓\n")
-		sb.WriteString("- 适当降低杠杆或减少仓位\n")
-		sb.WriteString("- 设置更宽的止损范围防止插针\n\n")
+		sb.WriteString("\n⚠️ 注意: 高影响事件可能导致市场剧烈波动\n")
+//		sb.WriteString("- 事件前1-2小时避免新开仓\n")
+//		sb.WriteString("- 适当降低杠杆或减少仓位\n")
+//		sb.WriteString("- 设置更宽的止损范围防止插针\n\n")
+	}
+
+	// 最新新闻（新增）
+	if len(ctx.News) > 0 {
+		log.Printf("发现最新新闻，添加到AI上下文中")
+		sb.WriteString("## 📰 最新加密货币新闻\n\n")
+		for i, news := range ctx.News {
+			// 重要性标记
+			importanceEmoji := ""
+			switch news.Importance {
+			case "critical":
+				importanceEmoji = "🔴"
+			case "high":
+				importanceEmoji = "🟠"
+			case "medium":
+				importanceEmoji = "🟡"
+			case "low":
+				importanceEmoji = "⚪"
+			default:
+				importanceEmoji = "🟡"
+			}
+
+			// 新闻标题和时间
+			sb.WriteString(fmt.Sprintf("%d. %s %s (%s)\n",
+				i+1, importanceEmoji, news.Title, news.TimeAgo))
+
+			// 新闻内容（限制长度避免prompt过长）
+			content := news.Content
+			if len(content) > 300 {
+				content = content[:300] + "..."
+			}
+			if content != "" {
+				sb.WriteString(fmt.Sprintf("   %s\n", content))
+			}
+			sb.WriteString("\n")
+		}
+		sb.WriteString("💡 提示: 请结合新闻分析市场情绪和潜在风险，注意:\n")
+//		sb.WriteString("- 重大利空新闻可能引发抛售，考虑减仓或观望\n")
+//		sb.WriteString("- 重大利好新闻可能推动上涨，可适当增加仓位\n")
+//		sb.WriteString("- 关注巨鲸动向和清算事件，避免跟随亏损策略\n\n")
+		sb.WriteString("- 不可完全或过分依赖新闻事件做出决策\n\n")
+		sb.WriteString("- 市场上的所有交易者都可以看到新闻信息，请辩证看待新闻信息，合理利用\n\n")
+		sb.WriteString("- 以上新闻可能与你的决策毫不相关，注意判断相关性和时效性\n\n")
 	}
 
 	sb.WriteString("---\n\n")
@@ -835,5 +888,126 @@ func formatTimeUntil(eventTime, now time.Time) string {
 			return fmt.Sprintf("%d天%d小时后", days, hours)
 		}
 		return fmt.Sprintf("%d天后", days)
+	}
+}
+
+// LoadLatestNews 从news.db加载最新的N条新闻
+func LoadLatestNews(dbPath string, limit int) ([]NewsItem, error) {
+	// 如果数据库路径为空，返回空列表
+	if dbPath == "" {
+		return []NewsItem{}, nil
+	}
+
+	// 解析绝对路径
+	absPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		log.Printf("⚠️  无法解析新闻数据库路径: %v", err)
+		return []NewsItem{}, nil
+	}
+
+	// 连接数据库
+	db, err := sql.Open("sqlite3", absPath)
+	if err != nil {
+		log.Printf("⚠️  打开新闻数据库失败: %v (跳过新闻数据)", err)
+		return []NewsItem{}, nil
+	}
+	defer db.Close()
+
+	// 查询最新的N条新闻，按created_at降序排列
+	query := `
+		SELECT title, content, timestamp, importance, created_at
+		FROM news
+		ORDER BY created_at DESC
+		LIMIT ?
+	`
+
+	rows, err := db.Query(query, limit)
+	if err != nil {
+		log.Printf("⚠️  查询新闻失败: %v", err)
+		return []NewsItem{}, nil
+	}
+	defer rows.Close()
+
+	now := time.Now()
+	var newsItems []NewsItem
+
+	for rows.Next() {
+		var title, content, timestamp, importance, createdAt string
+
+		err := rows.Scan(&title, &content, &timestamp, &importance, &createdAt)
+		if err != nil {
+			log.Printf("⚠️  读取新闻失败: %v", err)
+			continue
+		}
+
+		// 解析timestamp时间戳并计算时间差
+		// timestamp是新闻发布的实际时间（已转换为Texas时间）
+		// 使用ParseInLocation确保在本地时区解析
+		var newsTime time.Time
+
+		// 优先使用timestamp字段（新闻发布时间）
+		newsTime, err = time.ParseInLocation("2006-01-02 15:04:05", timestamp, time.Local)
+		if err != nil {
+			// 如果timestamp解析失败，尝试ISO 8601格式的created_at
+			newsTime, err = time.ParseInLocation("2006-01-02T15:04:05.999999", createdAt, time.Local)
+			if err != nil {
+				// 如果还是失败，尝试标准格式的created_at
+				newsTime, err = time.ParseInLocation("2006-01-02 15:04:05", createdAt, time.Local)
+				if err != nil {
+					// 如果都失败，使用当前时间
+					newsTime = now
+				}
+			}
+		}
+
+		// 计算"多久之前"
+		timeAgo := formatTimeAgo(now, newsTime)
+
+		newsItem := NewsItem{
+			Title:      title,
+			Content:    content,
+			Timestamp:  timestamp,
+			Importance: importance,
+			TimeAgo:    timeAgo,
+		}
+
+		newsItems = append(newsItems, newsItem)
+	}
+
+	if err = rows.Err(); err != nil {
+		log.Printf("⚠️  读取新闻行失败: %v", err)
+		return []NewsItem{}, nil
+	}
+
+	return newsItems, nil
+}
+
+// formatTimeAgo 格式化"多久之前"
+func formatTimeAgo(now, newsTime time.Time) string {
+	duration := now.Sub(newsTime)
+
+	if duration < 0 {
+		return "刚刚"
+	}
+
+	if duration < time.Minute {
+		return "刚刚"
+	} else if duration < time.Hour {
+		minutes := int(duration.Minutes())
+		return fmt.Sprintf("%d分钟前", minutes)
+	} else if duration < 24*time.Hour {
+		hours := int(duration.Hours())
+		minutes := int(duration.Minutes()) % 60
+		if minutes > 0 {
+			return fmt.Sprintf("%d小时%d分钟前", hours, minutes)
+		}
+		return fmt.Sprintf("%d小时前", hours)
+	} else {
+		days := int(duration.Hours() / 24)
+		hours := int(duration.Hours()) % 24
+		if hours > 0 {
+			return fmt.Sprintf("%d天%d小时前", days, hours)
+		}
+		return fmt.Sprintf("%d天前", days)
 	}
 }

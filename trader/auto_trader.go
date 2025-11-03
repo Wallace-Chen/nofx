@@ -81,6 +81,10 @@ type AutoTraderConfig struct {
 	EconomicCalendarDB        string // 经济日历数据库路径（如 "economic_calendar.db"）
 	EconomicCalendarHours     int    // 查询未来多少小时内的事件（默认24小时）
 	EconomicCalendarImportance string // 最低重要性过滤 ("高"/"中"/"低"，默认"高"）
+
+	// 新闻配置
+	NewsDB    string // 新闻数据库路径（如 "telegram/news/news.db"）
+	NewsLimit int    // 获取最新新闻数量（默认10条）
 }
 
 // PositionSnapshot 持仓快照（用于检测自动平仓）
@@ -664,7 +668,27 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		}
 	}
 
-	// 7. 构建上下文
+	// 7. 加载最新新闻
+	var news []decision.NewsItem
+	if at.config.NewsDB != "" {
+		log.Printf("📰 发现新闻数据库，查询中")
+		// 使用配置的参数，设置默认值
+		newsLimit := at.config.NewsLimit
+		if newsLimit <= 0 {
+			newsLimit = 10 // 默认获取最新10条新闻
+		}
+
+		newsItems, err := decision.LoadLatestNews(at.config.NewsDB, newsLimit)
+		if err != nil {
+			log.Printf("⚠️  加载新闻失败: %v (跳过新闻数据)", err)
+			// 不影响主流程，继续执行
+		} else if len(newsItems) > 0 {
+			news = newsItems
+			log.Printf("✓ 已加载 %d 条最新加密货币新闻", len(newsItems))
+		}
+	}
+
+	// 8. 构建上下文
 	ctx := &decision.Context{
 		CurrentTime:     time.Now().Format("2006-01-02 15:04:05"),
 		RuntimeMinutes:  int(time.Since(at.startTime).Minutes()),
@@ -683,7 +707,8 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 		Positions:      positionInfos,
 		CandidateCoins: candidateCoins,
 		Performance:    performance,     // 添加历史表现分析
-		EconomicEvents: economicEvents, // 添加经济日历事件
+		EconomicEvents: economicEvents,  // 添加经济日历事件
+		News:           news,            // 添加最新新闻
 	}
 
 	return ctx, nil

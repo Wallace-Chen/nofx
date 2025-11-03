@@ -195,6 +195,8 @@ func (d *Database) createTables() error {
 		`ALTER TABLE traders ADD COLUMN economic_calendar_db TEXT DEFAULT ''`,                       // 经济日历数据库路径
 		`ALTER TABLE traders ADD COLUMN economic_calendar_hours INTEGER DEFAULT 24`,                 // 查询未来多少小时内的事件
 		`ALTER TABLE traders ADD COLUMN economic_calendar_importance TEXT DEFAULT '高'`,             // 最低重要性过滤
+		`ALTER TABLE traders ADD COLUMN news_db TEXT DEFAULT ''`,                                    // 新闻数据库路径
+		`ALTER TABLE traders ADD COLUMN news_limit INTEGER DEFAULT 10`,                              // 获取最新新闻数量
 	}
 
 	for _, query := range alterQueries {
@@ -427,6 +429,8 @@ type TraderRecord struct {
 	EconomicCalendarDB        string `json:"economic_calendar_db"`        // 经济日历数据库路径
 	EconomicCalendarHours     int    `json:"economic_calendar_hours"`     // 查询未来多少小时内的事件
 	EconomicCalendarImportance string `json:"economic_calendar_importance"` // 最低重要性过滤
+	NewsDB                    string `json:"news_db"`                     // 新闻数据库路径
+	NewsLimit                 int    `json:"news_limit"`                  // 获取最新新闻数量
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
 }
@@ -778,9 +782,9 @@ func (d *Database) CreateExchange(userID, id, name, typ string, enabled bool, ap
 // CreateTrader 创建交易员
 func (d *Database) CreateTrader(trader *TraderRecord) error {
 	_, err := d.db.Exec(`
-		INSERT INTO traders (id, user_id, name, ai_model_id, exchange_id, initial_balance, scan_interval_minutes, is_running, btc_eth_leverage, altcoin_leverage, trading_symbols, use_coin_pool, use_oi_top, use_inside_coins, custom_prompt, override_base_prompt, system_prompt_template, is_cross_margin, economic_calendar_db, economic_calendar_hours, economic_calendar_importance)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, trader.ID, trader.UserID, trader.Name, trader.AIModelID, trader.ExchangeID, trader.InitialBalance, trader.ScanIntervalMinutes, trader.IsRunning, trader.BTCETHLeverage, trader.AltcoinLeverage, trader.TradingSymbols, trader.UseCoinPool, trader.UseOITop, trader.UseInsideCoins, trader.CustomPrompt, trader.OverrideBasePrompt, trader.SystemPromptTemplate, trader.IsCrossMargin, trader.EconomicCalendarDB, trader.EconomicCalendarHours, trader.EconomicCalendarImportance)
+		INSERT INTO traders (id, user_id, name, ai_model_id, exchange_id, initial_balance, scan_interval_minutes, is_running, btc_eth_leverage, altcoin_leverage, trading_symbols, use_coin_pool, use_oi_top, use_inside_coins, custom_prompt, override_base_prompt, system_prompt_template, is_cross_margin, economic_calendar_db, economic_calendar_hours, economic_calendar_importance, news_db, news_limit)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, trader.ID, trader.UserID, trader.Name, trader.AIModelID, trader.ExchangeID, trader.InitialBalance, trader.ScanIntervalMinutes, trader.IsRunning, trader.BTCETHLeverage, trader.AltcoinLeverage, trader.TradingSymbols, trader.UseCoinPool, trader.UseOITop, trader.UseInsideCoins, trader.CustomPrompt, trader.OverrideBasePrompt, trader.SystemPromptTemplate, trader.IsCrossMargin, trader.EconomicCalendarDB, trader.EconomicCalendarHours, trader.EconomicCalendarImportance, trader.NewsDB, trader.NewsLimit)
 	return err
 }
 
@@ -797,6 +801,8 @@ func (d *Database) GetTraders(userID string) ([]*TraderRecord, error) {
 		       COALESCE(economic_calendar_db, '') as economic_calendar_db,
 		       COALESCE(economic_calendar_hours, 24) as economic_calendar_hours,
 		       COALESCE(economic_calendar_importance, '高') as economic_calendar_importance,
+		       COALESCE(news_db, '') as news_db,
+		       COALESCE(news_limit, 10) as news_limit,
 		       created_at, updated_at
 		FROM traders WHERE user_id = ? ORDER BY created_at DESC
 	`, userID)
@@ -816,6 +822,7 @@ func (d *Database) GetTraders(userID string) ([]*TraderRecord, error) {
 			&trader.CustomPrompt, &trader.OverrideBasePrompt, &trader.SystemPromptTemplate,
 			&trader.IsCrossMargin,
 			&trader.EconomicCalendarDB, &trader.EconomicCalendarHours, &trader.EconomicCalendarImportance,
+			&trader.NewsDB, &trader.NewsLimit,
 			&trader.CreatedAt, &trader.UpdatedAt,
 		)
 		if err != nil {
@@ -840,12 +847,16 @@ func (d *Database) UpdateTrader(trader *TraderRecord) error {
 			name = ?, ai_model_id = ?, exchange_id = ?, initial_balance = ?,
 			scan_interval_minutes = ?, btc_eth_leverage = ?, altcoin_leverage = ?,
 			trading_symbols = ?, custom_prompt = ?, override_base_prompt = ?,
-			system_prompt_template = ?, is_cross_margin = ?, updated_at = CURRENT_TIMESTAMP
+			system_prompt_template = ?, is_cross_margin = ?,
+			economic_calendar_db = ?, economic_calendar_hours = ?, economic_calendar_importance = ?,
+			news_db = ?, news_limit = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND user_id = ?
 	`, trader.Name, trader.AIModelID, trader.ExchangeID, trader.InitialBalance,
 		trader.ScanIntervalMinutes, trader.BTCETHLeverage, trader.AltcoinLeverage,
 		trader.TradingSymbols, trader.CustomPrompt, trader.OverrideBasePrompt,
-		trader.SystemPromptTemplate, trader.IsCrossMargin, trader.ID, trader.UserID)
+		trader.SystemPromptTemplate, trader.IsCrossMargin,
+		trader.EconomicCalendarDB, trader.EconomicCalendarHours, trader.EconomicCalendarImportance,
+		trader.NewsDB, trader.NewsLimit, trader.ID, trader.UserID)
 	return err
 }
 
