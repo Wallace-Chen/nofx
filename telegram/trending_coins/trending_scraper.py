@@ -65,7 +65,7 @@ OUTPUT_FILE = args.output
 HEADLESS = args.headless.lower() in ('true', '1', 'yes')
 VERBOSE = args.verbose
 POLL_INTERVAL = None if args.once else args.interval
-MIN_MARKET_CAP = 1_000_000_000  # 1 billion USD
+MIN_MARKET_CAP = 500_000_000  # 0.5 billion USD
 COINGECKO_URL = 'https://www.coingecko.com/en/highlights/trending-crypto'
 
 # Global state
@@ -124,6 +124,7 @@ def fetch_trending_coins() -> List[Dict]:
     try:
         log("Fetching trending coins from CoinGecko...")
         coins = []
+        seen_symbols = set()  # Track unique symbols
 
         with sync_playwright() as p:
             # Launch browser (WebKit works better on Mac)
@@ -142,22 +143,20 @@ def fetch_trending_coins() -> List[Dict]:
 
                 # Wait for content to load
                 verbose_log("Waiting for trending coins data...")
-                time.sleep(2)  # Give time for initial content
+                time.sleep(3)  # Give time for initial content
 
                 # Scroll down to load more content
                 verbose_log("Scrolling down to load more coins...")
-                for i in range(3):
-                    page.evaluate("window.scrollBy(0, 1000)")
-                    time.sleep(1)
+                for i in range(5):
+                    page.evaluate("window.scrollBy(0, 1500)")
+                    time.sleep(1.5)
 
                 # Scroll back to top
                 page.evaluate("window.scrollTo(0, 0)")
                 time.sleep(1)
 
-                # CoinGecko embeds trending data in a data attribute as JSON
+                # Strategy 1: Extract from JSON data first (has market cap info)
                 verbose_log("Extracting coin data from JSON...")
-
-                # Try to extract data-search-trending attribute
                 import json
                 import re
 
@@ -188,9 +187,10 @@ def fetch_trending_coins() -> List[Dict]:
                                 name = item.get('name', 'Unknown')
                                 market_cap_str = data.get('market_cap', 'N/A')
 
-                                if not symbol:
-                                    verbose_log(f"Skipping coin - no symbol")
+                                if not symbol or symbol in seen_symbols:
                                     continue
+
+                                seen_symbols.add(symbol)
 
                                 # Parse market cap
                                 market_cap = parse_market_cap(market_cap_str) if market_cap_str else None
@@ -203,15 +203,129 @@ def fetch_trending_coins() -> List[Dict]:
                                 }
 
                                 coins.append(coin)
-                                verbose_log(f"Found: {symbol} ({name}) - Market Cap: {market_cap_str}")
+                                verbose_log(f"Found from JSON: {symbol} ({name}) - Market Cap: {market_cap_str}")
 
                             except Exception as e:
                                 verbose_log(f"Error parsing coin from JSON: {str(e)[:50]}")
                                 continue
-                    else:
-                        log("No 'coins' key in trending data JSON", "WARN")
-                else:
-                    log("Could not find trending data JSON in page", "WARN")
+
+                # Strategy 2: Parse HTML table rows for additional trending coins
+                verbose_log("Extracting additional coins from HTML tables...")
+
+                # Look for table rows containing coin data
+                # CoinGecko uses various table structures, we'll try multiple selectors
+                table_selectors = [
+                    'tr[data-controller="coin-row"]',  # Common pattern
+                    'table tbody tr',  # Generic table rows
+                    'div[data-view-component="true"] tr',  # New structure
+                ]
+
+                for selector in table_selectors:
+                    try:
+                        rows = page.query_selector_all(selector)
+                        verbose_log(f"Found {len(rows)} rows with selector '{selector}'")
+
+                        if len(rows) > 0:
+                            for row in rows:
+                                try:
+                                    # Strategy: Look for the coin name/symbol cell (usually 2nd or 3rd column)
+                                    # CoinGecko typically shows: [#] [Name Symbol] [Price] [24h] [Market Cap] [Volume]
+
+                                    # Get all text content from the row
+                                    row_text = row.inner_text()
+
+                                    # Try to find symbol - usually it's a short uppercase word (2-6 chars)
+                                    import re
+
+                                    # Look for span with class containing 'symbol' or 'ticker'
+                                    symbol_elem = row.query_selector('span[class*="symbol"], span[class*="ticker"], .tw-text-gray-700.dark\\:tw-text-moon-200')
+
+                                    if symbol_elem:
+                                        symbol_text = symbol_elem.inner_text().strip().upper()
+                                        # Extract just the symbol (2-6 uppercase letters/numbers)
+                                        symbol_match = re.search(r'\b([A-Z0-9]{2,6})\b', symbol_text)
+                                        symbol = symbol_match.group(1) if symbol_match else symbol_text
+                                    else:
+                                        # Fallback: Parse from row text
+                                        # Look for pattern like "Bitcoin BTC" or "BTC"
+                                        # Symbol is usually the last uppercase word in the name cell
+                                        lines = row_text.split('\n')
+                                        symbol = None
+                                        for line in lines[:5]:  # Check first 5 lines
+                                            # Look for 2-10 char uppercase ticker symbols (some are longer like VIRTUAL)
+                                            matches = re.findall(r'\b([A-Z][A-Z0-9]{1,9})\b', line)
+                                            if matches:
+                                                # Take the last match (usually the symbol after the name)
+                                                potential_symbol = matches[-1]
+                                                # Skip common words
+                                                if potential_symbol not in ['THE', 'AND', 'FOR', 'WITH', 'USD', 'USDT', 'BUSD', 'AI', 'PROTOCOL']:
+                                                    symbol = potential_symbol
+                                                    break
+
+                                    if not symbol:
+                                        verbose_log(f"Could not extract symbol from row: {row_text[:50]}")
+                                        continue
+
+                                    # Extract name (usually in a link or bold text)
+                                    name_elem = row.query_selector('a[href*="/coins/"], .tw-font-bold, .font-bold')
+                                    name = name_elem.inner_text().strip() if name_elem else symbol
+
+                                    # Extract market cap - it's in the 10th cell (index 9)
+                                    # CoinGecko table structure: [Star][Rank][Name][Buy][Price][1h][24h][7d][Volume][MarketCap][Chart]
+                                    market_cap_str = 'N/A'
+
+                                    try:
+                                        cells = row.query_selector_all('td')
+                                        if len(cells) >= 10:
+                                            # Cell 10 (index 9) contains market cap
+                                            mc_cell = cells[9]
+
+                                            # Look for span with data-price-usd attribute (most reliable)
+                                            mc_span = mc_cell.query_selector('span[data-price-usd]')
+                                            if mc_span:
+                                                # Get the data-price-usd attribute value (raw number)
+                                                mc_value = mc_span.get_attribute('data-price-usd')
+                                                if mc_value:
+                                                    # Convert to readable format
+                                                    mc_float = float(mc_value)
+                                                    if mc_float >= 1_000_000_000:
+                                                        market_cap_str = f"${mc_float / 1_000_000_000:.2f}B"
+                                                    elif mc_float >= 1_000_000:
+                                                        market_cap_str = f"${mc_float / 1_000_000:.2f}M"
+                                                    else:
+                                                        market_cap_str = f"${mc_float / 1_000:.2f}K"
+                                            else:
+                                                # Fallback: get text content
+                                                market_cap_str = mc_cell.inner_text().strip()
+                                    except Exception as e:
+                                        verbose_log(f"Error extracting market cap: {str(e)[:50]}")
+
+                                    # Clean up symbol (remove special chars)
+                                    symbol = re.sub(r'[^A-Z0-9]', '', symbol)
+
+                                    if symbol and len(symbol) >= 2 and symbol not in seen_symbols:
+                                        seen_symbols.add(symbol)
+                                        market_cap = parse_market_cap(market_cap_str) if market_cap_str != 'N/A' else None
+
+                                        coin = {
+                                            'symbol': symbol,
+                                            'name': name,
+                                            'market_cap': market_cap,
+                                            'market_cap_str': market_cap_str
+                                        }
+                                        coins.append(coin)
+                                        verbose_log(f"Found from HTML: {symbol} ({name}) - Market Cap: {market_cap_str}")
+
+                                except Exception as e:
+                                    verbose_log(f"Error parsing row: {str(e)[:50]}")
+                                    continue
+
+                            # If we found coins from this selector, stop trying others
+                            if len(coins) > 7:  # Stop if we got more coins than JSON alone
+                                break
+                    except Exception as e:
+                        verbose_log(f"Error with selector '{selector}': {str(e)[:50]}")
+                        continue
 
                 page.close()
                 context.close()
