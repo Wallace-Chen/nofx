@@ -71,8 +71,8 @@ type AutoTraderConfig struct {
 	IsCrossMargin bool // true=全仓模式, false=逐仓模式
 
 	// 币种配置
-	DefaultCoins    []string // 默认币种列表（从数据库获取）
-	TradingCoins    []string // 实际交易币种列表
+	DefaultCoins []string // 默认币种列表（从数据库获取）
+	TradingCoins []string // 实际交易币种列表
 
 	// 系统提示词模板
 	SystemPromptTemplate string // 系统提示词模板名称（如 "default", "aggressive"）
@@ -108,9 +108,9 @@ type AutoTrader struct {
 	decisionLogger        *logger.DecisionLogger // 决策日志记录器
 	initialBalance        float64
 	dailyPnL              float64
-	customPrompt          string // 自定义交易策略prompt
-	overrideBasePrompt    bool   // 是否覆盖基础prompt
-	systemPromptTemplate  string // 系统提示词模板名称
+	customPrompt          string   // 自定义交易策略prompt
+	overrideBasePrompt    bool     // 是否覆盖基础prompt
+	systemPromptTemplate  string   // 系统提示词模板名称
 	defaultCoins          []string // 默认币种列表（从数据库获取）
 	tradingCoins          []string // 实际交易币种列表
 	lastResetTime         time.Time
@@ -1471,12 +1471,12 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 func normalizeSymbol(symbol string) string {
 	// 转为大写
 	symbol = strings.ToUpper(strings.TrimSpace(symbol))
-	
+
 	// 确保以USDT结尾
 	if !strings.HasSuffix(symbol, "USDT") {
 		symbol = symbol + "USDT"
 	}
-	
+
 	return symbol
 }
 
