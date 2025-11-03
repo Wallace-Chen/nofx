@@ -47,6 +47,12 @@ func (c *APIClient) GetExchangeInfo() (*ExchangeInfo, error) {
 	return &exchangeInfo, nil
 }
 
+// BinanceError represents Binance API error response
+type BinanceError struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+}
+
 func (c *APIClient) GetKlines(symbol, interval string, limit int) ([]Kline, error) {
 	url := fmt.Sprintf("%s/fapi/v1/klines", baseURL)
 	req, err := http.NewRequest("GET", url, nil)
@@ -71,10 +77,16 @@ func (c *APIClient) GetKlines(symbol, interval string, limit int) ([]Kline, erro
 		return nil, err
 	}
 
+	// Check if response is an error object
+	var binanceErr BinanceError
+	if err := json.Unmarshal(body, &binanceErr); err == nil && binanceErr.Code != 0 {
+		return nil, fmt.Errorf("Binance API error %d: %s", binanceErr.Code, binanceErr.Msg)
+	}
+
 	var klineResponses []KlineResponse
 	err = json.Unmarshal(body, &klineResponses)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal klines failed: %w (body: %s)", err, string(body))
 	}
 
 	var klines []Kline
@@ -135,10 +147,16 @@ func (c *APIClient) GetCurrentPrice(symbol string) (float64, error) {
 		return 0, err
 	}
 
+	// Check if response is an error object
+	var binanceErr BinanceError
+	if err := json.Unmarshal(body, &binanceErr); err == nil && binanceErr.Code != 0 {
+		return 0, fmt.Errorf("Binance API error %d: %s", binanceErr.Code, binanceErr.Msg)
+	}
+
 	var ticker PriceTicker
 	err = json.Unmarshal(body, &ticker)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("unmarshal price ticker failed: %w (body: %s)", err, string(body))
 	}
 
 	price, err := strconv.ParseFloat(ticker.Price, 64)
