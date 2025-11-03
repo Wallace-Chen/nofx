@@ -333,7 +333,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	}
 
 	// 设置经济日历默认值（从系统配置获取）
-	economicCalendarDB := ""
+	economicCalendarDB := "./telegram/calendar_data/economic_calendar.db"
 	economicCalendarHours := 24
 	economicCalendarImportance := "高"
 
@@ -349,6 +349,9 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		economicCalendarImportance = importance
 	}
 
+	economicCalendarDB = "./telegram/calendar_data/economic_calendar.db"
+	economicCalendarHours = 24
+	economicCalendarImportance = "高"
     // 创建交易员配置（数据库实体）
     trader := &config.TraderRecord{
 		ID:                   traderID,

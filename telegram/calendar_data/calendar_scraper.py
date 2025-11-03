@@ -12,7 +12,7 @@ Features:
 
 Dependencies:
     pip install playwright pytz python-dotenv
-    playwright install chromium
+    playwright install webkit  # Use webkit on Mac, chromium on Linux
 
 Usage:
     # Default run (7 days ahead)
@@ -157,9 +157,9 @@ def fetch_calendar_with_browser(days_ahead: int = DAYS_AHEAD) -> List[Dict]:
         events = []
 
         with sync_playwright() as p:
-            # Launch browser
+            # Launch browser (WebKit works better on Mac than Chromium)
             verbose_log("Launching browser...")
-            browser = p.chromium.launch(headless=HEADLESS)
+            browser = p.webkit.launch(headless=HEADLESS)
             context = browser.new_context(
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 viewport={'width': 1920, 'height': 1080},
@@ -349,12 +349,24 @@ def write_to_database(events: List[Dict]) -> int:
     if not events:
         return 0
 
+    # Filter: Only high-importance US events
+    filtered_events = [
+        event for event in events
+        if event.get('importance') == '高' and event.get('zone') == '美国'
+    ]
+
+    if not filtered_events:
+        verbose_log("No events match filter criteria (importance='高' and zone='美国')")
+        return 0
+
+    log(f"Filtered {len(filtered_events)} events (from {len(events)} total) - importance='高', zone='美国'")
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     success_count = 0
 
-    for event in events:
+    for event in filtered_events:
         try:
             normalized = normalize_event_for_db(event)
             cursor.execute("""

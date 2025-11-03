@@ -8,7 +8,7 @@ This document compares the two approaches for fetching economic calendar data fr
 
 | Aspect | HTTP Version (`经济日历`) | Browser Automation (`calendar_data`) |
 |--------|-------------------------|-------------------------------------|
-| **Technology** | requests + lxml | Playwright (Chromium) |
+| **Technology** | requests + lxml | Playwright (WebKit on Mac, Chromium on Linux) |
 | **Status** | ❌ Blocked (403) | ✅ Working |
 | **Speed** | ⚡ ~1-2 seconds | 🐢 ~5-10 seconds |
 | **Memory** | ~20-50 MB | ~200-300 MB |
@@ -28,11 +28,13 @@ This document compares the two approaches for fetching economic calendar data fr
 
 ### Browser Automation Succeeds Because:
 
-1. **Real Browser**: Chromium behaves like real user
+1. **Real Browser**: WebKit/Chromium behaves like real user
 2. **JavaScript Support**: Fully renders dynamic content
 3. **Cookie Handling**: Automatic session management
 4. **Human-like Behavior**: Realistic timing and interactions
 5. **Bypass Detection**: Harder to detect than HTTP bots
+
+**Note**: On Mac (especially Apple Silicon), WebKit works more reliably than Chromium. The implementation automatically uses WebKit on Mac for better compatibility.
 
 ## File Structure Comparison
 

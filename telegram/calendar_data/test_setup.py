@@ -44,8 +44,8 @@ def test_browser():
 
         with sync_playwright() as p:
             try:
-                browser = p.chromium.launch(headless=True)
-                print("✓ Chromium browser installed and working")
+                browser = p.webkit.launch(headless=True)
+                print("✓ WebKit browser installed and working")
                 browser.close()
                 return True
             except Exception as e:

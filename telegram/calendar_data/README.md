@@ -34,13 +34,15 @@ pip install -r requirements.txt
 
 ### 2. Install Browser Binaries
 
-Playwright needs to download Chromium browser:
+Playwright needs to download WebKit browser (works best on Mac):
 
 ```bash
-playwright install chromium
+playwright install webkit
 ```
 
-This will download ~300MB of browser binaries.
+This will download ~60MB of browser binaries.
+
+Note: WebKit is recommended for Mac. If you're on Linux, use `playwright install chromium` instead.
 
 ## Usage
 
@@ -169,7 +171,19 @@ Look for log message:
 
 ```bash
 pip install playwright
-playwright install chromium
+python3 -m playwright install webkit  # Use webkit on Mac
+```
+
+### Browser Crashes on Mac (Apple Silicon)
+
+If you see "Target page, context or browser has been closed" errors:
+
+The solution is already implemented - the scraper uses WebKit instead of Chromium on Mac, which has better compatibility with Apple Silicon (M1/M2/M3 chips).
+
+If you still have issues:
+```bash
+# Reinstall WebKit
+python3 -m playwright install webkit --force
 ```
 
 ### Browser Download Fails
@@ -177,7 +191,7 @@ playwright install chromium
 Try manual installation:
 
 ```bash
-python -m playwright install chromium --with-deps
+python3 -m playwright install webkit --with-deps
 ```
 
 ### No Events Fetched

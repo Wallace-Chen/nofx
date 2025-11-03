@@ -419,6 +419,7 @@ func buildUserPrompt(ctx *Context) string {
 
 	// 经济日历事件（新增）
 	if len(ctx.EconomicEvents) > 0 {
+        log.Printf("发现经济日历事件，添加中")
 		sb.WriteString("## 📅 未来24小时重要经济事件\n\n")
 		for i, event := range ctx.EconomicEvents {
 			// 基本信息

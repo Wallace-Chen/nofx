@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Starting Economic Calendar Scraper"
+echo "🚀 Starting Trending Crypto Scraper"
 echo ""
 
 # Check if Python 3 is available
@@ -25,8 +25,8 @@ if ! python3 -c "import playwright" &> /dev/null; then
 fi
 
 # Run the scraper
-echo "🔄 Fetching economic calendar data..."
-python3 calendar_scraper.py "$@"
+echo "🔄 Fetching trending crypto coins..."
+python3 trending_scraper.py "$@"
 
 echo ""
 echo "✅ Done!"

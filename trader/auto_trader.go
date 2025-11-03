@@ -1,6 +1,7 @@
 package trader
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/pool"
+	"os"
 	"strings"
 	"time"
 )
@@ -641,6 +643,7 @@ func (at *AutoTrader) buildTradingContext() (*decision.Context, error) {
 	// 6. 加载经济日历事件
 	var economicEvents []decision.EconomicEvent
 	if at.config.EconomicCalendarDB != "" {
+        log.Printf("发现经济日历数据库，查询中")
 		// 使用配置的参数，设置默认值
 		hoursAhead := at.config.EconomicCalendarHours
 		if hoursAhead <= 0 {
@@ -1319,11 +1322,48 @@ func sortDecisionsByPriority(decisions []decision.Decision) []decision.Decision 
 }
 
 // getCandidateCoins 获取交易员的候选币种列表
+// readTrendingCoins 读取trending_coins.txt文件中的币种
+func readTrendingCoins() []string {
+	const trendingFile = "telegram/trending_coins/trending_coins.txt"
+
+	// 检查文件是否存在
+	if _, err := os.Stat(trendingFile); os.IsNotExist(err) {
+		// 文件不存在，静默返回空列表
+		return nil
+	}
+
+	// 打开文件
+	file, err := os.Open(trendingFile)
+	if err != nil {
+		log.Printf("⚠️  无法打开trending coins文件: %v", err)
+		return nil
+	}
+	defer file.Close()
+
+	var coins []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			// 文件中的币种已经是USDT格式（如BTCUSDT）
+			coins = append(coins, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("⚠️  读取trending coins文件出错: %v", err)
+		return nil
+	}
+
+	return coins
+}
+
 func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
+	var candidateCoins []decision.CandidateCoin
+
 	if len(at.tradingCoins) == 0 {
 		// 使用数据库配置的默认币种列表
-		var candidateCoins []decision.CandidateCoin
-		
+
 		if len(at.defaultCoins) > 0 {
 			// 使用数据库中配置的默认币种
 			for _, coin := range at.defaultCoins {
@@ -1335,11 +1375,10 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 			}
 			log.Printf("📋 [%s] 使用数据库默认币种: %d个币种 %v",
 				at.name, len(candidateCoins), at.defaultCoins)
-			return candidateCoins, nil
 		} else {
 			// 如果数据库中没有配置默认币种，则使用AI500+OI Top作为fallback
 			const ai500Limit = 20 // AI500取前20个评分最高的币种
-			
+
 			mergedPool, err := pool.GetMergedCoinPool(ai500Limit)
 			if err != nil {
 				return nil, fmt.Errorf("获取合并币种池失败: %w", err)
@@ -1356,11 +1395,9 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 
 			log.Printf("📋 [%s] 数据库无默认币种配置，使用AI500+OI Top: AI500前%d + OI_Top20 = 总计%d个候选币种",
 				at.name, ai500Limit, len(candidateCoins))
-			return candidateCoins, nil
 		}
 	} else {
 		// 使用自定义币种列表
-		var candidateCoins []decision.CandidateCoin
 		for _, coin := range at.tradingCoins {
 			// 确保币种格式正确（转为大写USDT交易对）
 			symbol := normalizeSymbol(coin)
@@ -1372,8 +1409,37 @@ func (at *AutoTrader) getCandidateCoins() ([]decision.CandidateCoin, error) {
 
 		log.Printf("📋 [%s] 使用自定义币种: %d个币种 %v",
 			at.name, len(candidateCoins), at.tradingCoins)
-		return candidateCoins, nil
 	}
+
+	// 读取trending coins并追加到候选列表
+	trendingCoins := readTrendingCoins()
+	if len(trendingCoins) > 0 {
+		// 创建已存在币种的map，避免重复
+		existingCoins := make(map[string]bool)
+		for _, coin := range candidateCoins {
+			existingCoins[coin.Symbol] = true
+		}
+
+		// 追加trending coins（去重）
+		addedCount := 0
+		for _, symbol := range trendingCoins {
+			if !existingCoins[symbol] {
+				candidateCoins = append(candidateCoins, decision.CandidateCoin{
+					Symbol:  symbol,
+					Sources: []string{"trending"}, // 标记为trending来源
+				})
+				existingCoins[symbol] = true
+				addedCount++
+			}
+		}
+
+		if addedCount > 0 {
+			log.Printf("🔥 [%s] 追加%d个trending币种: %v",
+				at.name, addedCount, trendingCoins)
+		}
+	}
+
+	return candidateCoins, nil
 }
 
 // normalizeSymbol 标准化币种符号（确保以USDT结尾）
