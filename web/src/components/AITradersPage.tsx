@@ -4,10 +4,11 @@ import { api } from '../lib/api';
 import type { TraderInfo, CreateTraderRequest, AIModel, Exchange } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t, type Language } from '../i18n/translations';
+import { useAuth } from '../contexts/AuthContext';
 import { getExchangeIcon } from './ExchangeIcons';
 import { getModelIcon } from './ModelIcons';
 import { TraderConfigModal } from './TraderConfigModal';
-import { Bot, Brain, Landmark, BarChart3, Trash2, Plus, Users, AlertTriangle } from 'lucide-react';
+import { Bot, Brain, Landmark, BarChart3, Trash2, Plus, Users, AlertTriangle, BookOpen } from 'lucide-react';
 
 // 获取友好的AI模型名称
 function getModelDisplayName(modelId: string): string {
@@ -35,6 +36,7 @@ interface AITradersPageProps {
 
 export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   const { language } = useLanguage();
+  const { user, token } = useAuth();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showModelModal, setShowModelModal] = useState(false);
@@ -53,7 +55,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   });
 
   const { data: traders, mutate: mutateTraders } = useSWR<TraderInfo[]>(
-    'traders',
+    user && token ? 'traders' : null,
     api.getTraders,
     { refreshInterval: 5000 }
   );
@@ -61,6 +63,21 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   // 加载AI模型和交易所配置
   useEffect(() => {
     const loadConfigs = async () => {
+      if (!user || !token) {
+        // 未登录时只加载公开的支持模型和交易所
+        try {
+          const [supportedModels, supportedExchanges] = await Promise.all([
+            api.getSupportedModels(),
+            api.getSupportedExchanges()
+          ]);
+          setSupportedModels(supportedModels);
+          setSupportedExchanges(supportedExchanges);
+        } catch (err) {
+          console.error('Failed to load supported configs:', err);
+        }
+        return;
+      }
+
       try {
         const [modelConfigs, exchangeConfigs, supportedModels, supportedExchanges] = await Promise.all([
           api.getModelConfigs(),
@@ -88,7 +105,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       }
     };
     loadConfigs();
-  }, []);
+  }, [user, token]);
 
   // 显示所有用户的模型和交易所配置（用于调试）
   const configuredModels = allModels || [];
@@ -106,10 +123,9 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
              e.asterPrivateKey && e.asterPrivateKey.trim() !== '';
     }
 
-    // Hyperliquid 只需要私钥（作为apiKey）和钱包地址
+    // Hyperliquid 只需要私钥（作为apiKey），钱包地址会自动从私钥生成
     if (e.id === 'hyperliquid') {
-      return e.apiKey && e.apiKey.trim() !== '' && 
-             e.hyperliquidWalletAddr && e.hyperliquidWalletAddr.trim() !== '';
+      return e.apiKey && e.apiKey.trim() !== '';
     }
 
     // Binance 等其他交易所需要 apiKey 和 secretKey
@@ -791,8 +807,8 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           isOpen={showEditModal}
           isEditMode={true}
           traderData={editingTrader}
-          availableModels={allModels}
-          availableExchanges={allExchanges}
+          availableModels={enabledModels}
+          availableExchanges={enabledExchanges}
           onSave={handleSaveEditTrader}
           onClose={() => {
             setShowEditModal(false);
@@ -1104,7 +1120,7 @@ function ModelConfigModal({
                   type="text"
                   value={modelName}
                   onChange={(e) => setModelName(e.target.value)}
-                  placeholder="例如: deepseek-chat, qwen-max, gpt-5"
+                  placeholder="例如: deepseek-chat, qwen3-max, gpt-5"
                   className="w-full px-3 py-2 rounded"
                   style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
                 />
@@ -1171,10 +1187,9 @@ function ExchangeConfigModal({
   const [secretKey, setSecretKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [testnet, setTestnet] = useState(false);
-  
-  // Hyperliquid 特定字段
-  const [hyperliquidWalletAddr, setHyperliquidWalletAddr] = useState('');
-  
+  const [showGuide, setShowGuide] = useState(false);
+
+
   // Aster 特定字段
   const [asterUser, setAsterUser] = useState('');
   const [asterSigner, setAsterSigner] = useState('');
@@ -1190,10 +1205,7 @@ function ExchangeConfigModal({
       setSecretKey(selectedExchange.secretKey || '');
       setPassphrase(''); // Don't load existing passphrase for security
       setTestnet(selectedExchange.testnet || false);
-      
-      // Hyperliquid 字段
-      setHyperliquidWalletAddr(selectedExchange.hyperliquidWalletAddr || '');
-      
+
       // Aster 字段
       setAsterUser(selectedExchange.asterUser || '');
       setAsterSigner(selectedExchange.asterSigner || '');
@@ -1210,8 +1222,8 @@ function ExchangeConfigModal({
       if (!apiKey.trim() || !secretKey.trim()) return;
       await onSave(selectedExchangeId, apiKey.trim(), secretKey.trim(), testnet);
     } else if (selectedExchange?.id === 'hyperliquid') {
-      if (!apiKey.trim() || !hyperliquidWalletAddr.trim()) return;
-      await onSave(selectedExchangeId, apiKey.trim(), '', testnet, hyperliquidWalletAddr.trim());
+      if (!apiKey.trim()) return; // 只验证私钥，钱包地址自动从私钥生成
+      await onSave(selectedExchangeId, apiKey.trim(), '', testnet, ''); // 传空字符串，后端自动生成地址
     } else if (selectedExchange?.id === 'aster') {
       if (!asterUser.trim() || !asterSigner.trim() || !asterPrivateKey.trim()) return;
       await onSave(selectedExchangeId, '', '', testnet, undefined, asterUser.trim(), asterSigner.trim(), asterPrivateKey.trim());
@@ -1235,21 +1247,34 @@ function ExchangeConfigModal({
           <h3 className="text-xl font-bold" style={{ color: '#EAECEF' }}>
             {editingExchangeId ? t('editExchange', language) : t('addExchange', language)}
           </h3>
-          {editingExchangeId && (
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm(t('confirmDeleteExchange', language))) {
-                  onDelete(editingExchangeId);
-                }
-              }}
-              className="p-2 rounded hover:bg-red-100 transition-colors"
-              style={{ background: 'rgba(246, 70, 93, 0.1)', color: '#F6465D' }}
-              title={t('deleteConfigFailed', language)}
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {selectedExchange?.id === 'binance' && (
+              <button
+                type="button"
+                onClick={() => setShowGuide(true)}
+                className="px-3 py-2 rounded text-sm font-semibold transition-all hover:scale-105 flex items-center gap-2"
+                style={{ background: 'rgba(240, 185, 11, 0.1)', color: '#F0B90B' }}
+              >
+                <BookOpen className="w-4 h-4" />
+                {t('viewGuide', language)}
+              </button>
+            )}
+            {editingExchangeId && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(t('confirmDeleteExchange', language))) {
+                    onDelete(editingExchangeId);
+                  }
+                }}
+                className="p-2 rounded hover:bg-red-100 transition-colors"
+                style={{ background: 'rgba(246, 70, 93, 0.1)', color: '#F6465D' }}
+                title={t('deleteConfigFailed', language)}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -1365,24 +1390,6 @@ function ExchangeConfigModal({
                       {t('hyperliquidPrivateKeyDesc', language)}
                     </div>
                   </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold mb-2" style={{ color: '#EAECEF' }}>
-                      {t('walletAddress', language)}
-                    </label>
-                    <input
-                      type="text"
-                      value={hyperliquidWalletAddr}
-                      onChange={(e) => setHyperliquidWalletAddr(e.target.value)}
-                      placeholder={t('enterWalletAddress', language)}
-                      className="w-full px-3 py-2 rounded"
-                      style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
-                      required
-                    />
-                    <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
-                      {t('hyperliquidWalletAddressDesc', language)}
-                    </div>
-                  </div>
                 </>
               )}
 
@@ -1477,10 +1484,10 @@ function ExchangeConfigModal({
             <button
               type="submit"
               disabled={
-                !selectedExchange || 
+                !selectedExchange ||
                 (selectedExchange.id === 'binance' && (!apiKey.trim() || !secretKey.trim())) ||
                 (selectedExchange.id === 'okx' && (!apiKey.trim() || !secretKey.trim() || !passphrase.trim())) ||
-                (selectedExchange.id === 'hyperliquid' && (!apiKey.trim() || !hyperliquidWalletAddr.trim())) ||
+                (selectedExchange.id === 'hyperliquid' && !apiKey.trim()) ||  // 只验证私钥，钱包地址可选
                 (selectedExchange.id === 'aster' && (!asterUser.trim() || !asterSigner.trim() || !asterPrivateKey.trim())) ||
                 (selectedExchange.type === 'cex' && selectedExchange.id !== 'hyperliquid' && selectedExchange.id !== 'aster' && selectedExchange.id !== 'binance' && selectedExchange.id !== 'okx' && (!apiKey.trim() || !secretKey.trim()))
               }
@@ -1492,6 +1499,34 @@ function ExchangeConfigModal({
           </div>
         </form>
       </div>
+
+      {/* Binance Setup Guide Modal */}
+      {showGuide && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" onClick={() => setShowGuide(false)}>
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-4xl relative" style={{ background: '#1E2329' }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold flex items-center gap-2" style={{ color: '#EAECEF' }}>
+                <BookOpen className="w-6 h-6" style={{ color: '#F0B90B' }} />
+                {t('binanceSetupGuide', language)}
+              </h3>
+              <button
+                onClick={() => setShowGuide(false)}
+                className="px-4 py-2 rounded text-sm font-semibold transition-all hover:scale-105"
+                style={{ background: '#2B3139', color: '#848E9C' }}
+              >
+                {t('closeGuide', language)}
+              </button>
+            </div>
+            <div className="overflow-y-auto max-h-[80vh]">
+              <img
+                src="/images/guide.png"
+                alt={t('binanceSetupGuide', language)}
+                className="w-full h-auto rounded"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
